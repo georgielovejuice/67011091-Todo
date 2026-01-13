@@ -12,6 +12,14 @@ const port = 5001;
 app.use(cors()); // Allow cross-origin requests from React frontend
 app.use(express.json()); // Enable reading JSON data from request body
 
+// Helper: convert ISO datetime to MySQL DATETIME
+function toMySQLDatetime(isoString) {
+  return isoString
+    .replace('T', ' ')
+    .replace('Z', '')
+    .split('.')[0];
+}
+
 // --- MySQL Connection Setup ---
 const db = mysql.createConnection({
     host: process.env.DB_HOST,
@@ -51,57 +59,108 @@ app.post('/api/login', (req, res) => {
 // API: Todo List (CRUD Operations)
 // ------------------------------------
 
-// 1. READ: Get all todos for a specific user
-app.get('/api/todos/:username', (req, res) => {
-    const { username } = req.params;
-    const sql = 'SELECT id, task, done, updated FROM todo WHERE username = ? ORDER BY id DESC';
-    db.query(sql, [username], (err, results) => {
-        if (err) return res.status(500).send(err);
-        res.json(results);
-    });
-});
+// Get ALL todos (sorted)
+app.get('/api/todos', (req, res) => {
+  const sql = `
+    SELECT *
+    FROM todos
+    ORDER BY target_datetime DESC
+  `;
 
-// 2. CREATE: Add a new todo item
-app.post('/api/todos', (req, res) => {
-    const { username, task } = req.body;
-    if (!username || !task) {
-        return res.status(400).send({ message: 'Username and task are required' });
+  db.query(sql, (err, results) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Database error' });
     }
-    // Note: 'done' defaults to FALSE in the DB schema
-    const sql = 'INSERT INTO todo (username, task) VALUES (?, ?)';
-    db.query(sql, [username, task], (err, result) => {
-        if (err) return res.status(500).send(err);
-        // Return the created item details including the new ID
-        res.status(201).send({ id: result.insertId, username, task, done: 0, updated: new Date() });
-    });
+    res.json(results);
+  });
 });
 
-// 3. UPDATE: Toggle the 'done' status
+// Get todos by username
+app.get('/api/todos/:username', (req, res) => {
+  const { username } = req.params;
+
+  const sql = `
+    SELECT *
+    FROM todos
+    WHERE username = ?
+    ORDER BY target_datetime DESC
+  `;
+
+  db.query(sql, [username], (err, results) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Database error' });
+    }
+    res.json(results);
+  });
+});
+
+// Create new todo
+app.post('/api/todos', (req, res) => {
+  const { username, title, target_datetime } = req.body;
+
+  if (!username || !title || !target_datetime) {
+    return res.status(400).json({ message: 'Missing fields' });
+  }
+
+  const mysqlDatetime = toMySQLDatetime(target_datetime);
+
+  const sql = `
+    INSERT INTO todos (username, title, target_datetime, status)
+    VALUES (?, ?, ?, 'Todo')
+  `;
+
+  db.query(sql, [username, title, mysqlDatetime], (err, result) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Insert failed' });
+    }
+    res.json({ message: 'Todo created', id: result.insertId });
+  });
+});
+
+// Update todo status
 app.put('/api/todos/:id', (req, res) => {
-    const { id } = req.params;
-    const { done } = req.body; 
-    
-    const sql = 'UPDATE todo SET done = ? WHERE id = ?';
-    db.query(sql, [done, id], (err, result) => {
-        if (err) return res.status(500).send(err);
-        if (result.affectedRows === 0) {
-            return res.status(404).send({ message: 'Todo not found' });
-        }
-        res.send({ message: 'Todo updated successfully' });
-    });
+  const { status } = req.body;
+  const { id } = req.params;
+
+  const allowedStatus = ['Todo', 'Doing', 'Done'];
+  if (!allowedStatus.includes(status)) {
+    return res.status(400).json({ message: 'Invalid status' });
+  }
+
+  const sql = `
+    UPDATE todos
+    SET status = ?
+    WHERE id = ?
+  `;
+
+  db.query(sql, [status, id], (err) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Update failed' });
+    }
+    res.json({ message: 'Status updated' });
+  });
 });
 
-// 4. DELETE: Remove a todo item
+// Delete todo
 app.delete('/api/todos/:id', (req, res) => {
-    const { id } = req.params;
-    const sql = 'DELETE FROM todo WHERE id = ?';
-    db.query(sql, [id], (err, result) => {
-        if (err) return res.status(500).send(err);
-        if (result.affectedRows === 0) {
-            return res.status(404).send({ message: 'Todo not found' });
-        }
-        res.send({ message: 'Todo deleted successfully' });
-    });
+  const { id } = req.params;
+
+  const sql = `
+    DELETE FROM todos
+    WHERE id = ?
+  `;
+
+  db.query(sql, [id], (err) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Delete failed' });
+    }
+    res.json({ message: 'Todo deleted' });
+  });
 });
 
 // Start the server
