@@ -36,7 +36,7 @@ function TodoList({ username, onLogout }) {
       body: JSON.stringify({
         username,
         title,
-        target_datetime: new Date(targetDatetime).toISOString()
+        target_datetime: targetDatetime.replace('T', ' ')
       })
     });
 
@@ -104,7 +104,7 @@ function TodoList({ username, onLogout }) {
                 <div key={todo.id} className="bg-white p-3 rounded-lg shadow mb-2">
                   <p className="font-medium">{todo.title}</p>
                   <p className="text-xs text-gray-500">
-                    {new Date(todo.target_datetime).toLocaleString()}
+                    {new Date(todo.target_datetime.replace(' ', 'T')).toLocaleString()}
                   </p>
 
                   <div className="flex gap-1 mt-2">
